@@ -230,11 +230,12 @@ workflows:
           title: Publish the merged report
           inputs:
             - test_name: unit_tests
-            # search_pattern is resolved relative to base_path, which defaults
-            # to $BITRISE_SOURCE_DIR — an absolute deploy-dir path matches
-            # nothing there.
-            - base_path: $BITRISE_DEPLOY_DIR
-            - search_pattern: merged-test-results/junit.xml
+            # base_path points straight at the directory holding the merged
+            # report and the pattern is "*", which is the form the Step
+            # documents for a known location. A literal nested path such as
+            # "merged-test-results/junit.xml" is not matched as a glob.
+            - base_path: $BITRISE_DEPLOY_DIR/merged-test-results
+            - search_pattern: "*"
       - deploy-to-bitrise-io@2: {}
 
   build_app:
