@@ -24,6 +24,34 @@ app:
     - TEST_DESTINATION: platform=iOS Simulator,name=Bitrise iOS default,OS=latest
       opts:
         is_expand: false
+    # Code signing — the certificate and provisioning profile are uploaded to
+    # the app's Code Signing tab, so the installer step fetches them by itself.
+    - APPLE_TEAM_ID: DT2C2FZ7U2
+      opts:
+        is_expand: false
+    - DEVELOPMENT_PROFILE_ID: eb37ff9f-d4d6-452a-ba3c-d0eb62bd6f06
+      opts:
+        is_expand: false
+    - ADHOC_PROFILE_ID: e3655341-cce2-46e8-b64c-207a08a98730
+      opts:
+        is_expand: false
+    - TEST_SHARD_COUNT: 3
+      opts:
+        is_expand: false
+
+pipelines:
+  sharded_unit_tests:
+    title: Sharded unit tests
+    summary: Build once, run the unit tests across 3 shards, merge into one JUnit report.
+    workflows:
+      shard_build_for_testing: {}
+      shard_run_tests:
+        depends_on:
+          - shard_build_for_testing
+        parallel: $TEST_SHARD_COUNT
+      shard_merge_results:
+        depends_on:
+          - shard_run_tests
 
 workflows:
   unit_tests:
@@ -54,8 +82,10 @@ workflows:
     triggers:
       push:
         - branch: main
+      # Every pull request, whatever it targets — scoping this to `main` would
+      # skip stacked pull requests, which are based on another review branch.
       pull_request:
-        - target_branch: main
+        - target_branch: '*'
 
   ui_tests:
     summary: Run the XCUITest UI test plan with screenshot and video attachments.
@@ -81,7 +111,201 @@ workflows:
             - cache_level: none
       - deploy-to-bitrise-io@2: {}
 
-  simulator_build:
+  shard_build_for_testing:
+    title: Build for testing + shard calculation
+    summary: Compile the unit test bundle once and split the tests into shards.
+    description: |-
+      The test bundle and the shard assignments are shared with the parallel
+      shard Workflows as Pipeline intermediate files, so the project is only
+      compiled once for the whole Pipeline.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - xcode-build-for-test@3:
+          title: Build the unit test bundle
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - test_plan: $UNIT_TEST_PLAN
+            - destination: generic/platform=iOS Simulator
+            - cache_level: none
+      - xcode-test-shard-calculation@0:
+          title: Split the tests into $TEST_SHARD_COUNT shards
+          inputs:
+            - shard_count: $TEST_SHARD_COUNT
+            - product_path: $BITRISE_XCTESTRUN_FILE_PATH
+            - test_plan: $UNIT_TEST_PLAN
+            - destination: $TEST_DESTINATION
+      - deploy-to-bitrise-io@2:
+          inputs:
+            # The scripts directory travels with the test bundle so the shard
+            # Workflows do not have to clone the repository just to reach it.
+            - pipeline_intermediate_files: |-
+                BITRISE_TEST_SHARDS_PATH
+                BITRISE_TEST_BUNDLE_PATH
+                $BITRISE_SOURCE_DIR/scripts:PIPELINE_SCRIPTS_DIR
+
+  shard_run_tests:
+    title: Run one test shard
+    summary: Run this shard's slice of the unit tests without rebuilding.
+    description: |-
+      Runs with retry_on_failure so the deliberately flaky test is retried
+      inside its own shard, then converts the shard's xcresult into JUnit XML.
+
+      The intermediate file key carries the parallel index
+      (`SHARD_JUNIT_$BITRISE_IO_PARALLEL_INDEX`), which gives every shard a
+      distinct env var for the merge Workflow to pick up.
+    steps:
+      # No git-clone: the tests run from the prebuilt bundle, and the JUnit
+      # converter arrives as a Pipeline intermediate file.
+      - pull-intermediate-files@1: {}
+      - script@1:
+          title: Locate the xctestrun in the shared test bundle
+          inputs:
+            - content: |-
+                #!/usr/bin/env bash
+                set -euo pipefail
+
+                # Building with a test plan names the file after the scheme, the
+                # plan, the SDK version and the arches — e.g.
+                # TradingApp_UnitTests_iphonesimulator26.5-arm64-x86_64.xctestrun
+                # so it is discovered rather than hardcoded. ("all_tests.xctestrun"
+                # is only the name when no test plan is used.)
+                xctestrun_path="$(find "$BITRISE_TEST_BUNDLE_PATH" -maxdepth 2 -name '*.xctestrun' | head -1)"
+
+                if [ -z "$xctestrun_path" ]; then
+                  echo "No .xctestrun found under $BITRISE_TEST_BUNDLE_PATH"
+                  ls -la "$BITRISE_TEST_BUNDLE_PATH" || true
+                  exit 1
+                fi
+
+                echo "Using $xctestrun_path"
+                envman add --key SHARD_XCTESTRUN_PATH --value "$xctestrun_path"
+      - xcode-test-without-building@0:
+          title: Run shard $BITRISE_IO_PARALLEL_INDEX
+          inputs:
+            - xctestrun: $SHARD_XCTESTRUN_PATH
+            - only_testing: $BITRISE_TEST_SHARDS_PATH/$BITRISE_IO_PARALLEL_INDEX
+            - destination: $TEST_DESTINATION
+            - test_repetition_mode: retry_on_failure
+            - maximum_test_repetitions: "3"
+            - relaunch_tests_for_each_repetition: "no"
+      - script@1:
+          title: Convert this shard's xcresult to JUnit
+          is_always_run: true
+          inputs:
+            - content: |-
+                #!/usr/bin/env bash
+                set -euxo pipefail
+
+                junit_path="$BITRISE_DEPLOY_DIR/junit-shard-$BITRISE_IO_PARALLEL_INDEX.xml"
+                python3 "$PIPELINE_SCRIPTS_DIR/xcresult_to_junit.py" "$BITRISE_XCRESULT_PATH" "$junit_path"
+
+                envman add --key SHARD_JUNIT_PATH --value "$junit_path"
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - pipeline_intermediate_files: $SHARD_JUNIT_PATH:SHARD_JUNIT_$BITRISE_IO_PARALLEL_INDEX
+
+  shard_merge_results:
+    title: Merge shard results
+    summary: Combine every shard's JUnit XML into a single report.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - pull-intermediate-files@1:
+          inputs:
+            - artifact_sources: shard_run_tests.*
+      - script@1:
+          title: Merge shard JUnit reports
+          inputs:
+            - content: |-
+                #!/usr/bin/env bash
+                set -euxo pipefail
+
+                merged_dir="$BITRISE_DEPLOY_DIR/merged-test-results"
+                mkdir -p "$merged_dir"
+
+                # Exits non-zero when any shard reported a failure, which fails
+                # the Pipeline just as an unsharded test run would.
+                python3 scripts/merge_junit.py "$merged_dir/junit.xml"
+      - custom-test-results-export@1:
+          title: Publish the merged report
+          inputs:
+            - test_name: unit_tests
+            # base_path points straight at the directory holding the merged
+            # report and the pattern is "*", which is the form the Step
+            # documents for a known location. A literal nested path such as
+            # "merged-test-results/junit.xml" is not matched as a glob.
+            - base_path: $BITRISE_DEPLOY_DIR/merged-test-results
+            - search_pattern: "*"
+      - deploy-to-bitrise-io@2: {}
+
+  build_development_ipa:
+    title: Development IPA
+    summary: Build a development-signed IPA for the team's registered devices.
+    description: |-
+      Installs the certificate and provisioning profile uploaded to the app's
+      Code Signing tab, then archives and exports a development IPA signed with
+      the "Naveen Trading App" profile.
+
+      Signing settings are passed as xcodebuild command-line build settings
+      rather than an xcconfig, because command-line settings are the only ones
+      that override the target's own CODE_SIGN_STYLE.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - certificate-and-profile-installer@1: {}
+      - xcode-archive@6:
+          title: Archive and export development IPA
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - distribution_method: development
+            - automatic_code_signing: "off"
+            - export_development_team: $APPLE_TEAM_ID
+            - xcodebuild_options: CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$APPLE_TEAM_ID PROVISIONING_PROFILE_SPECIFIER=$DEVELOPMENT_PROFILE_ID
+            - artifact_name: TradingApp-development
+      - deploy-to-bitrise-io@2: {}
+
+  build_adhoc_ipa:
+    title: Ad Hoc IPA
+    summary: Build an ad-hoc distribution IPA with the Xcode build cache enabled.
+    description: |-
+      Archives the Release configuration signed with the "Naveen Trading App
+      Distribution" ad-hoc profile and the Apple Distribution certificate.
+
+      The Build Cache for Xcode Step wraps every subsequent xcodebuild call, so
+      the compilation cache is read from and pushed to Bitrise's remote cache.
+      It has to run before the archive Step to take effect.
+
+      Unlike the development build, CODE_SIGN_IDENTITY is set explicitly: the
+      Xcode default is "Apple Development", which is not in an ad-hoc profile
+      and would fail to match the distribution certificate.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - activate-build-cache-for-xcode@0: {}
+      - certificate-and-profile-installer@1: {}
+      - xcode-archive@6:
+          title: Archive and export ad-hoc IPA
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - configuration: Release
+            - distribution_method: ad-hoc
+            - automatic_code_signing: "off"
+            - export_development_team: $APPLE_TEAM_ID
+            - xcodebuild_options: CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$APPLE_TEAM_ID PROVISIONING_PROFILE_SPECIFIER=$ADHOC_PROFILE_ID CODE_SIGN_IDENTITY="Apple Distribution"
+            - artifact_name: TradingApp-release
+      - deploy-to-bitrise-io@2: {}
+
+  build_simulator_app:
+    title: Simulator App
     summary: Build a runnable .app for the iOS Simulator and deploy it as an artifact.
     description: |-
       Produces an unsigned simulator build and uploads it as a zipped .app. The
