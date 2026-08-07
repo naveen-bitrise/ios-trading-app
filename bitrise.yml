@@ -287,7 +287,7 @@ workflows:
       - activate-ssh-key@4:
           run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
       - git-clone@8: {}
-      - activate-build-cache-for-xcode@1: {}
+      - activate-build-cache-for-xcode@0: {}
       - certificate-and-profile-installer@1: {}
       - xcode-archive@6:
           title: Archive and export ad-hoc IPA
