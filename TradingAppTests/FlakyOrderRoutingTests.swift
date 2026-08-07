@@ -11,6 +11,12 @@ import XCTest
 /// later one. The observable behaviour on CI is the same as a genuine flake:
 /// the first attempt fails, a retry passes, and Bitrise reports the test as
 /// flaky via `BITRISE_FLAKY_TEST_CASES`.
+///
+/// The counter below lives in the test host's container, which is per simulator
+/// *clone*. Parallel execution hands each repetition to a different clone and
+/// would reset the counter, so `UnitTests.xctestplan` runs this target with
+/// `parallelizable: false` — otherwise a retry could land on a fresh clone and
+/// fail again.
 final class FlakyOrderRoutingTests: XCTestCase {
     /// Survives the process relaunch that happens between test repetitions.
     private var attemptCounterURL: URL {
