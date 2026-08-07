@@ -17,7 +17,7 @@
       "name" : "TradingApp"
     },
     "testTimeoutsEnabled" : true,
-    "uiTestingScreenshotsLifetime" : "keepAlways",
+    "uiTestingScreenshotsLifetime" : "deleteOnSuccess",
     "userAttachmentLifetime" : "keepAlways"
   },
   "testTargets" : [

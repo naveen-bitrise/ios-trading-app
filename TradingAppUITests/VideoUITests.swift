@@ -38,7 +38,6 @@ final class VideoUITests: TradingUITestCase {
 
         recorder.captureFrame()
         recorder.attachVideo(to: self, name: "buy-order-flow.mp4")
-        attachScreenshot(named: "buy-order-flow-final-frame")
     }
 
     func testSearchAndSellFlowRecordsVideo() {
@@ -71,6 +70,5 @@ final class VideoUITests: TradingUITestCase {
 
         recorder.captureFrame()
         recorder.attachVideo(to: self, name: "search-and-sell-flow.mp4")
-        attachScreenshot(named: "search-and-sell-flow-final-frame")
     }
 }
