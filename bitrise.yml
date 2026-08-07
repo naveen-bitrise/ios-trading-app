@@ -24,6 +24,14 @@ app:
     - TEST_DESTINATION: platform=iOS Simulator,name=Bitrise iOS default,OS=latest
       opts:
         is_expand: false
+    # Code signing — the certificate and provisioning profile are uploaded to
+    # the app's Code Signing tab, so the installer step fetches them by itself.
+    - APPLE_TEAM_ID: DT2C2FZ7U2
+      opts:
+        is_expand: false
+    - DEVELOPMENT_PROFILE_ID: eb37ff9f-d4d6-452a-ba3c-d0eb62bd6f06
+      opts:
+        is_expand: false
 
 workflows:
   unit_tests:
@@ -42,11 +50,13 @@ workflows:
             - scheme: $BITRISE_SCHEME
             - test_plan: $UNIT_TEST_PLAN
             - destination: $TEST_DESTINATION
-            # A failing test is re-run until it passes, up to 3 executions, so
-            # a flaky test surfaces as flaky instead of failing the build.
+            # Only a failing test repeats, up to 3 executions, so a flaky test
+            # is reported as flaky instead of failing the build. Retries run in
+            # the same process — relaunching re-runs the whole bundle, which
+            # would repeat every test rather than just the failing one.
             - test_repetition_mode: retry_on_failure
             - maximum_test_repetitions: 3
-            - relaunch_tests_for_each_repetition: "yes"
+            - relaunch_tests_for_each_repetition: "no"
             - cache_level: none
       - deploy-to-bitrise-io@2: {}
     triggers:
@@ -77,6 +87,34 @@ workflows:
             - maximum_test_repetitions: 2
             - relaunch_tests_for_each_repetition: "yes"
             - cache_level: none
+      - deploy-to-bitrise-io@2: {}
+
+  build_app:
+    title: Build App
+    summary: Build a development-signed IPA.
+    description: |-
+      Installs the certificate and provisioning profile uploaded to the app's
+      Code Signing tab, then archives and exports a development IPA signed with
+      the "Naveen Trading App" profile.
+
+      Signing settings are passed as xcodebuild command-line build settings
+      rather than an xcconfig, because command-line settings are the only ones
+      that override the target's own CODE_SIGN_STYLE.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - certificate-and-profile-installer@1: {}
+      - xcode-archive@6:
+          title: Archive and export development IPA
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - distribution_method: development
+            - automatic_code_signing: "off"
+            - export_development_team: $APPLE_TEAM_ID
+            - xcodebuild_options: CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$APPLE_TEAM_ID PROVISIONING_PROFILE_SPECIFIER=$DEVELOPMENT_PROFILE_ID
+            - artifact_name: TradingApp-development
       - deploy-to-bitrise-io@2: {}
 
   simulator_build:
