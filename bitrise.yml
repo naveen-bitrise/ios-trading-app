@@ -241,9 +241,9 @@ workflows:
             - search_pattern: "*"
       - deploy-to-bitrise-io@2: {}
 
-  build_app:
-    title: Build App
-    summary: Build a development-signed IPA.
+  build_development_ipa:
+    title: Development IPA
+    summary: Build a development-signed IPA for the team's registered devices.
     description: |-
       Installs the certificate and provisioning profile uploaded to the app's
       Code Signing tab, then archives and exports a development IPA signed with
@@ -269,8 +269,8 @@ workflows:
             - artifact_name: TradingApp-development
       - deploy-to-bitrise-io@2: {}
 
-  build_release_app:
-    title: Build Release App
+  build_adhoc_ipa:
+    title: Ad Hoc IPA
     summary: Build an ad-hoc distribution IPA with the Xcode build cache enabled.
     description: |-
       Archives the Release configuration signed with the "Naveen Trading App
@@ -302,7 +302,8 @@ workflows:
             - artifact_name: TradingApp-release
       - deploy-to-bitrise-io@2: {}
 
-  simulator_build:
+  build_simulator_app:
+    title: Simulator App
     summary: Build a runnable .app for the iOS Simulator and deploy it as an artifact.
     description: |-
       Produces an unsigned simulator build and uploads it as a zipped .app. The

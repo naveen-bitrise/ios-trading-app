@@ -41,11 +41,26 @@ xcodebuild test -project TradingApp.xcodeproj -scheme TradingApp \
 
 ## Bitrise workflows
 
+Workflows are named after what they produce, so the distribution method is
+obvious from the name rather than from reading the steps.
+
 | Workflow | What it does |
 | --- | --- |
-| `unit_tests` | Runs the `UnitTests` test plan and publishes the test report. Triggered on pushes to `main` and on pull requests. |
+| `unit_tests` | Runs the `UnitTests` test plan and publishes the test report. Triggered on pushes to `main` and on pull requests targeting `main`. Failing tests retry up to 3 times, so a flaky test is reported as flaky instead of failing the build. |
 | `ui_tests` | Runs the `UITests` test plan. Screenshots are attached from every test; `VideoUITests` records two flows and attaches them as `.mp4`. |
-| `simulator_build` | Builds an unsigned simulator `.app` and uploads `TradingApp-simulator.zip` as a build artifact. |
+| `build_development_ipa` | Development-signed IPA for the team's registered devices. |
+| `build_adhoc_ipa` | Ad-hoc distribution IPA, built with the Bitrise Xcode build cache enabled. |
+| `build_simulator_app` | Unsigned simulator `.app`, uploaded as `TradingApp-simulator.zip`. |
+
+## Bitrise pipelines
+
+| Pipeline | What it does |
+| --- | --- |
+| `sharded_unit_tests` | Builds the test bundle once, runs the unit tests across 3 parallel shards, then merges every shard's JUnit XML into a single report. |
+
+The shard Workflows never clone the repository: the test bundle, the shard
+assignments and `scripts/` all travel between Workflows as Pipeline
+intermediate files.
 
 ### Test attachments
 
