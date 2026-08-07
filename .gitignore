@@ -1,0 +1,10 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+simulator-build/
+
+# macOS
+.DS_Store

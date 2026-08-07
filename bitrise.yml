@@ -1,0 +1,115 @@
+format_version: "26"
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+
+meta:
+  bitrise.io:
+    stack: osx-xcode-26.6.x
+    machine_type_id: g2.mac.x-large
+
+app:
+  envs:
+    - BITRISE_PROJECT_PATH: TradingApp.xcodeproj
+      opts:
+        is_expand: false
+    - BITRISE_SCHEME: TradingApp
+      opts:
+        is_expand: false
+    - UNIT_TEST_PLAN: UnitTests
+      opts:
+        is_expand: false
+    - UI_TEST_PLAN: UITests
+      opts:
+        is_expand: false
+    - TEST_DESTINATION: platform=iOS Simulator,name=Bitrise iOS default,OS=latest
+      opts:
+        is_expand: false
+
+workflows:
+  unit_tests:
+    summary: Run the XCTest unit test plan.
+    description: |-
+      Runs the `UnitTests` test plan (TradingAppTests target) on a simulator and
+      publishes the test report to Bitrise.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - xcode-test@6:
+          title: Run unit tests
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - test_plan: $UNIT_TEST_PLAN
+            - destination: $TEST_DESTINATION
+            - test_repetition_mode: none
+            - cache_level: none
+      - deploy-to-bitrise-io@2: {}
+    triggers:
+      push:
+        - branch: main
+      pull_request:
+        - source_branch: '*'
+
+  ui_tests:
+    summary: Run the XCUITest UI test plan with screenshot and video attachments.
+    description: |-
+      Runs the `UITests` test plan (TradingAppUITests target). The tests attach
+      screenshots via XCTAttachment, and two of them record the flow and attach
+      an .mp4. Bitrise collates the attachments from the xcresult onto the test
+      report automatically, so no extra step is needed beyond deploy-to-bitrise-io.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - xcode-test@6:
+          title: Run UI tests
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - test_plan: $UI_TEST_PLAN
+            - destination: $TEST_DESTINATION
+            - test_repetition_mode: retry_on_failure
+            - maximum_test_repetitions: 2
+            - relaunch_tests_for_each_repetition: "yes"
+            - cache_level: none
+      - deploy-to-bitrise-io@2: {}
+
+  simulator_build:
+    summary: Build a runnable .app for the iOS Simulator and deploy it as an artifact.
+    description: |-
+      Produces an unsigned simulator build and uploads it as a zipped .app. The
+      artifact can be dragged onto a booted simulator, or installed with
+      `xcrun simctl install booted TradingApp.app` after unzipping.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8: {}
+      - xcode-build-for-simulator@0:
+          title: Build for simulator
+          inputs:
+            - project_path: $BITRISE_PROJECT_PATH
+            - scheme: $BITRISE_SCHEME
+            - configuration: Debug
+            - destination: generic/platform=iOS Simulator
+            - output_dir: $BITRISE_SOURCE_DIR/simulator-build
+      - script@1:
+          title: Zip the simulator .app
+          inputs:
+            - content: |-
+                #!/usr/bin/env bash
+                set -euxo pipefail
+
+                app_path="$BITRISE_APP_DIR_PATH"
+                if [ ! -d "$app_path" ]; then
+                  echo "No .app produced at '$app_path'"
+                  exit 1
+                fi
+
+                archive_path="$BITRISE_DEPLOY_DIR/TradingApp-simulator.zip"
+                # -y keeps symlinks intact so the bundle stays launchable.
+                (cd "$(dirname "$app_path")" && zip -r -y "$archive_path" "$(basename "$app_path")")
+
+                envman add --key BITRISE_SIMULATOR_APP_ZIP_PATH --value "$archive_path"
+                echo "Simulator build zipped to $archive_path"
+      - deploy-to-bitrise-io@2: {}

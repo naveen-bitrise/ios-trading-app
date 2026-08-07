@@ -1,0 +1,30 @@
+{
+  "configurations" : [
+    {
+      "id" : "1E7B9B4E-0000-4000-A000-000000000001",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:TradingApp.xcodeproj",
+      "identifier" : "AA00000000000000000000D1",
+      "name" : "TradingApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:TradingApp.xcodeproj",
+        "identifier" : "AA00000000000000000000D2",
+        "name" : "TradingAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}
