@@ -82,8 +82,10 @@ workflows:
     triggers:
       push:
         - branch: main
+      # Every pull request, whatever it targets — scoping this to `main` would
+      # skip stacked pull requests, which are based on another review branch.
       pull_request:
-        - target_branch: main
+        - target_branch: '*'
 
   ui_tests:
     summary: Run the XCUITest UI test plan with screenshot and video attachments.
