@@ -42,11 +42,13 @@ workflows:
             - scheme: $BITRISE_SCHEME
             - test_plan: $UNIT_TEST_PLAN
             - destination: $TEST_DESTINATION
-            # A failing test is re-run until it passes, up to 3 executions, so
-            # a flaky test surfaces as flaky instead of failing the build.
+            # Only a failing test repeats, up to 3 executions, so a flaky test
+            # is reported as flaky instead of failing the build. Retries run in
+            # the same process — relaunching re-runs the whole bundle, which
+            # would repeat every test rather than just the failing one.
             - test_repetition_mode: retry_on_failure
             - maximum_test_repetitions: 3
-            - relaunch_tests_for_each_repetition: "yes"
+            - relaunch_tests_for_each_repetition: "no"
             - cache_level: none
       - deploy-to-bitrise-io@2: {}
     triggers:
