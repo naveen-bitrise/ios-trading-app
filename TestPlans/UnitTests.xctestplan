@@ -18,7 +18,7 @@
   },
   "testTargets" : [
     {
-      "parallelizable" : false,
+      "parallelizable" : true,
       "target" : {
         "containerPath" : "container:TradingApp.xcodeproj",
         "identifier" : "AA00000000000000000000D2",
