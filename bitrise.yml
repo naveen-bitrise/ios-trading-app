@@ -134,9 +134,12 @@ workflows:
             - destination: $TEST_DESTINATION
       - deploy-to-bitrise-io@2:
           inputs:
+            # The scripts directory travels with the test bundle so the shard
+            # Workflows do not have to clone the repository just to reach it.
             - pipeline_intermediate_files: |-
                 BITRISE_TEST_SHARDS_PATH
                 BITRISE_TEST_BUNDLE_PATH
+                $BITRISE_SOURCE_DIR/scripts:PIPELINE_SCRIPTS_DIR
 
   shard_run_tests:
     title: Run one test shard
@@ -149,6 +152,8 @@ workflows:
       (`SHARD_JUNIT_$BITRISE_IO_PARALLEL_INDEX`), which gives every shard a
       distinct env var for the merge Workflow to pick up.
     steps:
+      # No git-clone: the tests run from the prebuilt bundle, and the JUnit
+      # converter arrives as a Pipeline intermediate file.
       - pull-intermediate-files@1: {}
       - script@1:
           title: Locate the xctestrun in the shared test bundle
@@ -190,7 +195,7 @@ workflows:
                 set -euxo pipefail
 
                 junit_path="$BITRISE_DEPLOY_DIR/junit-shard-$BITRISE_IO_PARALLEL_INDEX.xml"
-                python3 scripts/xcresult_to_junit.py "$BITRISE_XCRESULT_PATH" "$junit_path"
+                python3 "$PIPELINE_SCRIPTS_DIR/xcresult_to_junit.py" "$BITRISE_XCRESULT_PATH" "$junit_path"
 
                 envman add --key SHARD_JUNIT_PATH --value "$junit_path"
       - deploy-to-bitrise-io@2:
